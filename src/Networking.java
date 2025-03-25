@@ -4,7 +4,6 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
 
-
 /**
  * Clase que maneja la comunicación de red para la aplicación de chat
  */
@@ -61,54 +60,49 @@ public class Networking {
      * Conecta al servidor de chat
      */
     public void connect() {
-        executor.submit(() -> {
-            try {
-                // Crear el socket y los streams
-                socket = new Socket(serverAddress, serverPort);
-                output = new PrintWriter(new BufferedWriter(
-                        new OutputStreamWriter(socket.getOutputStream())), true);
-                input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                connected = true;
+        try {
+            socket = new Socket(serverAddress, serverPort);
+            output = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8"), true);
+            input = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            connected = true;
 
-                // Notificar cambio de estado a conectado
-                if (statusHandler != null) {
-                    statusHandler.accept(ConnectionStatus.CONNECTED);
-                }
-
-                // Comenzar a escuchar mensajes entrantes
-                listenForMessages();
-            } catch (IOException e) {
-                connected = false;
-                if (statusHandler != null) {
-                    statusHandler.accept(ConnectionStatus.CONNECTION_FAILED);
-                }
-                System.err.println("Error al conectar: " + e.getMessage());
+            if (statusHandler != null) {
+                statusHandler.accept(ConnectionStatus.CONNECTED);
             }
-        });
+
+            listenForMessages();
+        } catch (IOException e) {
+            System.err.println("Error al conectar al servidor: " + e.getMessage());
+            connected = false;
+            if (statusHandler != null) {
+                statusHandler.accept(ConnectionStatus.CONNECTION_FAILED);
+            }
+        }
     }
 
     /**
      * Escucha continuamente los mensajes entrantes
      */
     private void listenForMessages() {
-        try {
-            String message;
-            while (connected && (message = input.readLine()) != null) {
-                // Procesar el mensaje recibido
-                if (messageHandler != null) {
-                    final String receivedMessage = message;
-                    // Ejecutamos el handler en el hilo principal para actualizar la UI
-                    SwingUtilities.invokeLater(() -> messageHandler.accept(receivedMessage));
+        executor.submit(() -> {
+            try {
+                String message;
+                while (connected && (message = input.readLine()) != null) {
+                    if (messageHandler != null) {
+                        final String finalMessage = message;
+                        messageHandler.accept(finalMessage);
+                    }
+                }
+            } catch (IOException e) {
+                if (connected) {
+                    System.err.println("Error al recibir mensaje: " + e.getMessage());
+                    disconnectQuietly();
+                    if (statusHandler != null) {
+                        statusHandler.accept(ConnectionStatus.DISCONNECTED);
+                    }
                 }
             }
-        } catch (IOException e) {
-            if (connected) {
-                disconnectQuietly();
-                if (statusHandler != null) {
-                    statusHandler.accept(ConnectionStatus.DISCONNECTED);
-                }
-            }
-        }
+        });
     }
 
     /**
@@ -122,32 +116,25 @@ public class Networking {
             return false;
         }
 
-        executor.submit(() -> {
+        try {
             output.println(message);
-            if (output.checkError()) {
-                disconnectQuietly();
-                if (statusHandler != null) {
-                    statusHandler.accept(ConnectionStatus.DISCONNECTED);
-                }
-            }
-        });
-
-        return true;
+            return !output.checkError();
+        } catch (Exception e) {
+            System.err.println("Error al enviar mensaje: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
      * Desconecta del servidor
      */
     public void disconnect() {
-        if (!connected) {
-            return;
-        }
-
-        connected = false;
-        disconnectQuietly();
-
-        if (statusHandler != null) {
-            statusHandler.accept(ConnectionStatus.DISCONNECTED);
+        if (connected) {
+            connected = false;
+            disconnectQuietly();
+            if (statusHandler != null) {
+                statusHandler.accept(ConnectionStatus.DISCONNECTED);
+            }
         }
     }
 
@@ -155,11 +142,16 @@ public class Networking {
      * Cierra los recursos de red sin lanzar excepciones
      */
     private void disconnectQuietly() {
-        connected = false;
         try {
-            if (output != null) output.close();
-            if (input != null) input.close();
-            if (socket != null) socket.close();
+            if (output != null) {
+                output.close();
+            }
+            if (input != null) {
+                input.close();
+            }
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
         } catch (IOException e) {
             System.err.println("Error al cerrar la conexión: " + e.getMessage());
         }

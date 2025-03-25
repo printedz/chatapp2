@@ -13,7 +13,7 @@ public class ChatServer {
     // Puerto en el que escucha el servidor
     private static final int PORT = 12345;
 
-    // Conjunto para almacenar los escritores de cada cliente conectado
+    // Conjunto para almacenar los handlers de cada cliente conectado
     private static final Set<ClientHandler> clients = new CopyOnWriteArraySet<>();
 
     // Formato para mostrar la hora en los mensajes del servidor
@@ -24,27 +24,24 @@ public class ChatServer {
     private static final int MAX_HISTORY_SIZE = 100;
 
     public static void main(String[] args) {
-        System.out.println(getTimestamp() + " Iniciando servidor de chat en el puerto " + PORT);
-        System.out.println(getTimestamp() + " Esperando conexiones...");
+        System.out.println("Iniciando servidor de chat en puerto " + PORT);
 
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            // Ciclo principal del servidor
+            System.out.println("Servidor iniciado correctamente. Esperando conexiones...");
+
             while (true) {
-                // Esperar a que se conecte un cliente
-                Socket clientSocket = serverSocket.accept();
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    System.out.println("Nueva conexión desde " + clientSocket.getInetAddress().getHostAddress());
 
-                // Crear un manejador para el nuevo cliente en un hilo separado
-                ClientHandler handler = new ClientHandler(clientSocket);
-                clients.add(handler);
-                handler.start();
-
-                // Notificar que se conectó un nuevo cliente
-                System.out.println(getTimestamp() + " Nuevo cliente conectado: " +
-                        clientSocket.getInetAddress().getHostAddress());
+                    ClientHandler handler = new ClientHandler(clientSocket);
+                    handler.start();
+                } catch (IOException e) {
+                    System.err.println("Error al aceptar conexión: " + e.getMessage());
+                }
             }
         } catch (IOException e) {
-            System.err.println(getTimestamp() + " Error en el servidor: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Error al iniciar servidor: " + e.getMessage());
         }
     }
 
@@ -52,22 +49,18 @@ public class ChatServer {
      * Distribuye un mensaje a todos los clientes conectados
      */
     private static void broadcast(String message, ClientHandler sender) {
-        // Agregar el mensaje al historial
+        // Agregar mensaje al historial
         synchronized (messageHistory) {
             messageHistory.add(message);
             if (messageHistory.size() > MAX_HISTORY_SIZE) {
-                messageHistory.remove(0); // Eliminar el mensaje más antiguo
+                messageHistory.remove(0);
             }
         }
 
-        // Enviar mensaje a todos los clientes
-        System.out.println(getTimestamp() + " " + message);
-
+        // Enviar el mensaje a todos los clientes
         for (ClientHandler client : clients) {
-            // Opcional: si no queremos enviar el mensaje al remitente, podemos añadir una verificación
-            // if (client != sender) {
+            // Envía el mensaje a todos los clientes (incluido al remitente)
             client.sendMessage(message);
-            // }
         }
     }
 
@@ -89,54 +82,68 @@ public class ChatServer {
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
+            this.username = "Anónimo";
+
+            try {
+                this.out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8"), true);
+                this.in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            } catch (IOException e) {
+                System.err.println("Error al crear streams para cliente: " + e.getMessage());
+            }
         }
 
         @Override
         public void run() {
             try {
-                // Configurar los flujos de entrada y salida
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                out = new PrintWriter(socket.getOutputStream(), true);
+                String input;
 
-                // Esperar a que el cliente envíe su nombre de usuario
-                username = extractUsername(in.readLine());
+                // Procesar mensajes del cliente
+                while ((input = in.readLine()) != null) {
+                    // Procesar el mensaje según su tipo
+                    if (input.startsWith("USER:")) {
+                        // Procesar nuevo usuario
+                        String newUsername = extractUsername(input);
+                        if (!newUsername.isEmpty()) {
+                            String oldUsername = username;
+                            username = newUsername;
 
-                // Enviar mensaje de bienvenida
-                sendMessage("¡Bienvenido al chat, " + username + "!");
+                            // Agregar a la lista de clientes
+                            clients.add(this);
 
-                // Enviar el historial de mensajes recientes
-                synchronized (messageHistory) {
-                    if (!messageHistory.isEmpty()) {
-                        sendMessage("--- Últimos mensajes ---");
-                        for (String msg : messageHistory) {
-                            sendMessage(msg);
+                            // Enviar mensaje de bienvenida e historial
+                            sendMessage(getTimestamp() + " Bienvenido, " + username + "!");
+
+                            // Enviar historial de mensajes recientes solo al nuevo usuario
+                            synchronized (messageHistory) {
+                                for (String historyMessage : messageHistory) {
+                                    sendMessage(historyMessage);
+                                }
+                            }
+
+                            // Notificar a todos los clientes sobre el nuevo usuario
+                            broadcast(getTimestamp() + " " + username + " se ha unido al chat.", null);
+
+                            // Enviar lista de usuarios conectados
+                            sendUsersList();
                         }
-                        sendMessage("--- Fin del historial ---");
-                    }
-                }
-
-                // Anunciar que el usuario se ha unido
-                broadcast(username + " se ha unido al chat.", this);
-
-                // Ciclo principal para procesar mensajes
-                String inputLine;
-                while ((inputLine = in.readLine()) != null) {
-                    // Verificar si es un comando especial
-                    if (inputLine.equalsIgnoreCase("/quit")) {
-                        break;
-                    } else if (inputLine.startsWith("/usuarios")) {
-                        // Comando para listar usuarios conectados
-                        sendUsersList();
-                    } else if (inputLine.startsWith("/ayuda")) {
-                        // Comando de ayuda
-                        sendHelpInfo();
-                    } else {
-                        // Enviar mensaje a todos los clientes
-                        broadcast(inputLine, this);
+                    } else if (input.startsWith("MSG:")) {
+                        // Procesar mensaje regular
+                        String content = input.substring(4).trim();
+                        if (!content.isEmpty()) {
+                            // Comprobamos si es un comando
+                            if (content.equals("/help")) {
+                                sendHelpInfo();
+                            } else if (content.equals("/users")) {
+                                sendUsersList();
+                            } else {
+                                // Mensaje normal para todos
+                                broadcast(getTimestamp() + " " + username + ": " + content, this);
+                            }
+                        }
                     }
                 }
             } catch (IOException e) {
-                System.err.println(getTimestamp() + " Error con cliente " + username + ": " + e.getMessage());
+                System.err.println("Error en la comunicación con el cliente: " + e.getMessage());
             } finally {
                 disconnect();
             }
@@ -155,74 +162,53 @@ public class ChatServer {
          * Extrae el nombre de usuario del primer mensaje
          */
         private String extractUsername(String message) {
-            // Formato esperado: "Nombre: mensaje" o simplemente "Nombre se ha unido al chat!"
-            if (message == null || message.isEmpty()) {
-                return "Usuario" + socket.getPort();
-            }
-
-            if (message.contains(":")) {
-                return message.substring(0, message.indexOf(":")).trim();
-            } else if (message.contains(" se ha unido al chat")) {
-                return message.substring(0, message.indexOf(" se ha unido al chat")).trim();
-            } else {
-                // Generar un nombre de usuario basado en el puerto si no se puede extraer
-                return "Usuario" + socket.getPort();
-            }
+            String user = message.substring(5).trim();
+            return user.length() > 0 && user.length() <= 20 ? user : "Anónimo";
         }
 
         /**
          * Envía una lista de usuarios conectados actualmente
          */
         private void sendUsersList() {
-            StringBuilder userList = new StringBuilder("Usuarios conectados: ");
-            int count = 0;
+            StringBuilder userList = new StringBuilder(getTimestamp() + " Usuarios conectados: ");
+
             for (ClientHandler client : clients) {
-                if (count > 0) {
-                    userList.append(", ");
-                }
-                userList.append(client.username);
-                count++;
+                userList.append(client.username).append(", ");
             }
-            userList.append(" (").append(count).append(" en total)");
-            sendMessage(userList.toString());
+
+            // Eliminar la última coma y espacio
+            String finalList = userList.toString();
+            if (clients.size() > 0) {
+                finalList = finalList.substring(0, finalList.length() - 2);
+            }
+
+            sendMessage(finalList);
         }
 
         /**
          * Envía información de ayuda sobre comandos disponibles
          */
         private void sendHelpInfo() {
-            sendMessage("--- Comandos disponibles ---");
-            sendMessage("/usuarios - Muestra la lista de usuarios conectados");
-            sendMessage("/quit - Desconecta del chat");
-            sendMessage("/ayuda - Muestra esta ayuda");
-            sendMessage("--- Fin de la ayuda ---");
+            sendMessage(getTimestamp() + " Comandos disponibles:");
+            sendMessage(getTimestamp() + " /users - Muestra la lista de usuarios conectados");
+            sendMessage(getTimestamp() + " /help - Muestra esta ayuda");
         }
 
         /**
          * Gestiona la desconexión del cliente
          */
         private void disconnect() {
-            clients.remove(this);
-
-            if (username != null) {
-                broadcast(username + " ha abandonado el chat.", this);
-            }
-
             try {
-                if (out != null) {
-                    out.close();
+                if (clients.remove(this) && username != null) {
+                    broadcast(getTimestamp() + " " + username + " ha abandonado el chat.", null);
                 }
-                if (in != null) {
-                    in.close();
-                }
-                if (socket != null && !socket.isClosed()) {
-                    socket.close();
-                }
-            } catch (IOException e) {
-                System.err.println(getTimestamp() + " Error al cerrar recursos: " + e.getMessage());
-            }
 
-            System.out.println(getTimestamp() + " Cliente desconectado: " + username);
+                if (out != null) out.close();
+                if (in != null) in.close();
+                if (socket != null && !socket.isClosed()) socket.close();
+            } catch (IOException e) {
+                System.err.println("Error al desconectar cliente: " + e.getMessage());
+            }
         }
     }
 }
