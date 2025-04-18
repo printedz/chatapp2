@@ -11,8 +11,10 @@ public class Main {
     private static JButton connectButton;
     private static String userName;
     private static Networking networking;
+    private static NotificationSound notificationSound;
     private static final int SERVER_PORT = 12345;
     private static final String SERVER_ADDRESS = "localhost";
+    private static final String SOUND_FILE_PATH = "resources/sounds/notif.wav"; // Ruta al archivo de sonido
 
     public static void main(String[] args) {
         try {
@@ -20,6 +22,9 @@ public class Main {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        // Inicializar el objeto NotificationSound
+        notificationSound = new NotificationSound(SOUND_FILE_PATH);
 
         SwingUtilities.invokeLater(() -> {
             solicitarNombreUsuario();
@@ -130,6 +135,9 @@ public class Main {
         if (!message.isEmpty() && networking.isConnected()) {
             networking.sendMessage("MSG:" + message);
             messageField.setText("");
+
+            // Reproducir el sonido de notificación al enviar el mensaje
+            notificationSound.makeNoise();
         }
     }
 
