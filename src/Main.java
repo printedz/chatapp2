@@ -32,16 +32,19 @@ public class Main {
     }
 
     private static void solicitarNombreUsuario() {
-        JPanel panel = new JPanel(new GridLayout(4, 1, 10, 10));
+        JPanel panel = new JPanel(new GridLayout(6, 1, 10, 10));
         panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         JTextField nameField = new JTextField(20);
         JTextField hostField = new JTextField(SERVER_ADDRESS, 20);  // Pre-fill with default
+        JTextField portField = new JTextField(String.valueOf(SERVER_PORT), 20);  // Pre-fill with default port
 
         panel.add(new JLabel("Introduce tu nombre de usuario:"));
         panel.add(nameField);
         panel.add(new JLabel("Introduce la dirección del servidor:"));
         panel.add(hostField);
+        panel.add(new JLabel("Introduce el puerto del servidor:"));
+        panel.add(portField);
 
         int result = JOptionPane.showConfirmDialog(null, panel, "Chat - Inicio de sesión",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -51,8 +54,28 @@ public class Main {
             String serverHost = hostField.getText().trim().isEmpty() ?
                     SERVER_ADDRESS : hostField.getText().trim();
 
+            // Parse port number with error handling
+            int serverPort = SERVER_PORT;
+            try {
+                String portText = portField.getText().trim();
+                if (!portText.isEmpty()) {
+                    int port = Integer.parseInt(portText);
+                    if (port > 0 && port <= 65535) {  // Valid port range
+                        serverPort = port;
+                    } else {
+                        JOptionPane.showMessageDialog(null,
+                                "Puerto fuera de rango (1-65535). Usando puerto predeterminado: " + SERVER_PORT,
+                                "Advertencia", JOptionPane.WARNING_MESSAGE);
+                    }
+                }
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(null,
+                        "Puerto inválido. Usando puerto predeterminado: " + SERVER_PORT,
+                        "Advertencia", JOptionPane.WARNING_MESSAGE);
+            }
+
             crearVentanaChat();
-            networking = new Networking(serverHost, SERVER_PORT);
+            networking = new Networking(serverHost, serverPort);
             networking.setMessageHandler(Main::handleIncomingMessage);
             networking.setStatusHandler(Main::handleConnectionStatus);
         } else {
