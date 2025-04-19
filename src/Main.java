@@ -32,20 +32,27 @@ public class Main {
     }
 
     private static void solicitarNombreUsuario() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        JPanel panel = new JPanel(new GridLayout(4, 1, 10, 10));
         panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         JTextField nameField = new JTextField(20);
-        panel.add(new JLabel("Introduce tu nombre de usuario:"), BorderLayout.NORTH);
-        panel.add(nameField, BorderLayout.CENTER);
+        JTextField hostField = new JTextField(SERVER_ADDRESS, 20);  // Pre-fill with default
+
+        panel.add(new JLabel("Introduce tu nombre de usuario:"));
+        panel.add(nameField);
+        panel.add(new JLabel("Introduce la dirección del servidor:"));
+        panel.add(hostField);
 
         int result = JOptionPane.showConfirmDialog(null, panel, "Chat - Inicio de sesión",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result == JOptionPane.OK_OPTION && !nameField.getText().trim().isEmpty()) {
             userName = nameField.getText().trim();
+            String serverHost = hostField.getText().trim().isEmpty() ?
+                    SERVER_ADDRESS : hostField.getText().trim();
+
             crearVentanaChat();
-            networking = new Networking(SERVER_ADDRESS, SERVER_PORT);
+            networking = new Networking(serverHost, SERVER_PORT);
             networking.setMessageHandler(Main::handleIncomingMessage);
             networking.setStatusHandler(Main::handleConnectionStatus);
         } else {
